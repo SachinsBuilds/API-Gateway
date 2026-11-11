@@ -1,4 +1,4 @@
-const { error, log } = require('console');
+const { time } = require('console');
 const http = require('http');
 
 const ROUTE_MATRIX = {
@@ -14,7 +14,7 @@ const ROUTE_MATRIX = {
 
 
 const PROJECT_REGISTRY = {
-    'sachin_secret_key_123': {
+    'demo_secret_key_123': {
         projectId: 'project_alpha_ecommerce',
         allowedLimits: 5
     },
@@ -40,7 +40,8 @@ const gatewayServer = http.createServer((req, res) => {
     let targetPort;
 
     for (const prefix in ROUTE_MATRIX) {
-        if (incomingPath.startsWith(prefix)) {
+        const matchesRoute = incomingPath === prefix || incomingPath.startsWith(`${prefix}`);
+        if (matchesRoute) {
             targetPort = ROUTE_MATRIX[prefix];
             break;
         }
@@ -81,26 +82,27 @@ const gatewayServer = http.createServer((req, res) => {
         //Phase 4 in-Memory Rate Limiter Pipeline
 
         const now = Date.now();
+        const WINDOWStart = now - WINDOW_MS;
+
+        const timestamps = RateLimitCache[tenantId] || [];
+
+        const activeTimeStamps = timestamps.filter((timestamps) => timestamps > WINDOWStart)
         //Initialize with tenant id
         if (!RateLimitCache[tenantId]) {
             RateLimitCache[tenantId] = [];
         }
 
-
-
-        // Enforce dynamic request caps based on the specific client's tier allocation
-        if (RateLimitCache[tenantId].length >= tenantLimit) {
-            console.log(`[Gateway Rate Limiter] Rate Limit Exceed for : ${tenantId} Blocked at Boundary`);
-
-            res.writeHead(429, { 'Content-type': 'application/json', 'retry-after': Math.ceil(WINDOW_MS / 1000) })   // Tells client to wait 10 seconds
-
-            return res.end(JSON.stringify({ error: "429 Too Many Requests", message: `Rate Limit hit for workspace ${tenantId} Maximum Allowed is: ${tenantLimit} requests per ${WINDOW_MS / 1000} seconds.` }));
+        if(activeTimeStamps.length >= tenantLimit){
+            const retryafterSeconds = Math.max(1,Math.ceil((activeTimeStamps[0] + WINDOW_MS - now) / 1000))
+            
+            res.writeHead(429,{"Content-type":"application/json","Retry-after":String(retryafterSeconds)})
+            return res.end(JSON.stringify({error:"Too Many Requests",message:`Rate Limit Exceeds ${tenantId}`}))
         }
+    
 
-        //If under the limit record current request timestamp and let them pass
-        RateLimitCache[tenantId].push(now);
-        console.log(`[Gateway Rate Limiter] Workspace. [${tenantId} usage: ${RateLimitCache[tenantId].length}/${tenantLimit}`)
-
+        activeTimeStamps.push(now);
+        RateLimitCache[tenantId] = activeTimeStamps;
+        
 
 
         // //Next Proxying Phase 2 & Phase 5 Upgraded with tenants
@@ -130,6 +132,9 @@ const gatewayServer = http.createServer((req, res) => {
 
         //Initialize the brand new internal http request
         const proxyreq = http.request(proxyOptions, (proxyRes) => {
+            proxyreq.setTimeout(5000,() => {
+                proxyreq.destroy(new Error("Upstream timeout"))
+            })
             res.writeHead(proxyRes.statusCode || 200, proxyRes.headers);
 
             console.log(`[Gateway] streaming response back to the client.`);
@@ -138,6 +143,10 @@ const gatewayServer = http.createServer((req, res) => {
 
         //Gracefully handle network errors if the microservice is dead
         proxyreq.on("error", (err) => {
+            if(res.headersSent){
+                res.destroy();
+                return
+            }
             console.error(`[Gateway Error] Sub-service on port ${targetPort} is unreachable`);
 
             res.writeHead(502, { 'Content-type': 'application/json' });
