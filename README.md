@@ -4,8 +4,6 @@ A multi-tenant API Gateway built from scratch with Node.js and the native HTTP m
 
 This project demonstrates how a gateway can authenticate incoming requests, resolve tenant identity, apply tenant-specific rate limits, route traffic to internal services, stream request and response bodies, and return clear gateway-level errors.
 
-> **Project status:** Backend prototype. It is designed to demonstrate API Gateway fundamentals and is not intended to be deployed as a production gateway without additional security, observability, and distributed-systems work.
-
 ## Overview
 
 In a microservices architecture, clients should not need to communicate directly with every internal service. An API Gateway can provide a single entry point for:
