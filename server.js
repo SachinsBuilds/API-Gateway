@@ -132,13 +132,13 @@ const gatewayServer = http.createServer((req, res) => {
 
         //Initialize the brand new internal http request
         const proxyreq = http.request(proxyOptions, (proxyRes) => {
-            proxyreq.setTimeout(5000,() => {
-                proxyreq.destroy(new Error("Upstream timeout"))
-            })
             res.writeHead(proxyRes.statusCode || 200, proxyRes.headers);
-
+            
             console.log(`[Gateway] streaming response back to the client.`);
             proxyRes.pipe(res);
+        })
+        proxyreq.setTimeout(5000,() => {
+            proxyreq.destroy(new Error("Upstream timeout"))
         })
 
         //Gracefully handle network errors if the microservice is dead
